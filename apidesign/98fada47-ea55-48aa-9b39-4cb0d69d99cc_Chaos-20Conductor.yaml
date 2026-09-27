@@ -1,0 +1,367 @@
+openapi: 3.0.3
+info:
+  title: Chaos Conductor
+  version: 1.0.0
+  description: |
+    Controlled chaos engineering platform for the ForgeSphere ecosystem.
+    Injects deliberate faults (service kill, network delay, disk pressure, 
+    memory exhaustion) into staging environments to validate resilience, 
+    circuit breakers, and auto-recovery. All experiments are time-boxed, 
+    auto-reverted, and fully audited.
+  contact:
+    name: ForgeSphere Reliability Engineering
+    email: chaos@forgesphere.example.com
+
+servers:
+  - url: https://chaos.forgesphere.lightning.com/v1
+    description: Production Chaos Server
+  - url: http://localhost:8096/v1
+    description: Local Development Server
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Experiments
+    description: Create, monitor, and abort controlled chaos experiments.
+
+paths:
+  # ==================== 1. LAUNCH AN EXPERIMENT ====================
+  /experiments:
+    post:
+      tags: [Experiments]
+      summary: Launch a new chaos experiment
+      description: |
+        Starts a time-boxed chaos experiment against a target service. 
+        The experiment is automatically reverted after `durationSeconds`, 
+        or immediately if any `abortCondition` is triggered. 
+        Only permitted in STAGING by default; PRODUCTION requires `blastRadiusApproved=true`.
+      operationId: launchExperiment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetService, environment, faultType, durationSeconds]
+              properties:
+                targetService:
+                  type: string
+                  description: "Service to inject the fault into."
+                  example: "payment-processor"
+                environment:
+                  type: string
+                  enum: [STAGING, PRODUCTION]
+                  description: "Where to run the experiment."
+                  example: "STAGING"
+                faultType:
+                  type: string
+                  enum: [SERVICE_KILL, NETWORK_DELAY, NETWORK_LOSS, CPU_STRESS, MEMORY_STRESS, DISK_PRESSURE, DNS_FAILURE]
+                  description: "Type of chaos to inject."
+                  example: "NETWORK_DELAY"
+                faultParams:
+                  type: object
+                  description: "Fault-specific parameters."
+                  example:
+                    delayMs: 500
+                    jitterMs: 100
+                    targetPort: 8080
+                durationSeconds:
+                  type: integer
+                  minimum: 30
+                  maximum: 3600
+                  description: "How long the fault stays active (auto-reverts after)."
+                  example: 300
+                abortConditions:
+                  type: array
+                  description: "Conditions that immediately abort the experiment."
+                  items:
+                    type: string
+                    enum: [ERROR_RATE_GT_20, LATENCY_P99_GT_2S, CUSTOMER_IMPACT_DETECTED]
+                  example: ["ERROR_RATE_GT_20", "LATENCY_P99_GT_2S"]
+                blastRadiusApproved:
+                  type: boolean
+                  description: "Required true only for PRODUCTION experiments."
+                  default: false
+      responses:
+        '202':
+          description: Experiment accepted and starting.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChaosExperiment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          description: "Production chaos requires explicit blast radius approval."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ==================== 2. GET EXPERIMENT STATUS ====================
+  /experiments/{experimentId}:
+    get:
+      tags: [Experiments]
+      summary: Get live status of a chaos experiment
+      description: |
+        Returns the current phase of an experiment, affected instances, 
+        real-time impact metrics, and whether the fault is still active.
+      operationId: getExperimentStatus
+      parameters:
+        - name: experimentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: "The experiment ID returned by POST /experiments."
+      responses:
+        '200':
+          description: Experiment status details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChaosExperiment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ==================== 3. ABORT AN EXPERIMENT ====================
+  /experiments/{experimentId}/abort:
+    post:
+      tags: [Experiments]
+      summary: Abort a running chaos experiment immediately
+      description: |
+        Instantly reverts the injected fault and restores the target service 
+        to its normal state. Use this when unintended customer impact is observed.
+      operationId: abortExperiment
+      parameters:
+        - name: experimentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [abortReason]
+              properties:
+                abortReason:
+                  type: string
+                  description: "Reason for early abort (min 15 chars)."
+                  example: "Unexpected customer-facing errors observed in dashboard."
+      responses:
+        '200':
+          description: Experiment aborted and fault reverted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChaosExperiment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: "Experiment is not in a state that can be aborted."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ==================== 4. COMPARE RESILIENCE (POST-MORTEM) ====================
+  /experiments/{experimentId}/report:
+    get:
+      tags: [Experiments]
+      summary: Fetch post-experiment resilience report
+      description: |
+        Returns a comprehensive resilience report after an experiment ends. 
+        Includes whether the system self-healed, circuit breakers fired correctly, 
+        and a comparison against the previous experiment on the same service.
+      operationId: getResilienceReport
+      parameters:
+        - name: experimentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Resilience report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResilienceReport'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "SRE or Admin JWT for chaos operations."
+
+  schemas:
+    ChaosExperiment:
+      type: object
+      required: [experimentId, targetService, environment, faultType, status, startedAt]
+      properties:
+        experimentId:
+          type: string
+          format: uuid
+          example: "7e2d1c9a-4b3f-4a5e-9d1c-9876543210fe"
+        targetService:
+          type: string
+          example: "payment-processor"
+        environment:
+          type: string
+          enum: [STAGING, PRODUCTION]
+          example: "STAGING"
+        faultType:
+          type: string
+          enum: [SERVICE_KILL, NETWORK_DELAY, NETWORK_LOSS, CPU_STRESS, MEMORY_STRESS, DISK_PRESSURE, DNS_FAILURE]
+          example: "NETWORK_DELAY"
+        status:
+          type: string
+          enum: [QUEUED, INJECTING_FAULT, FAULT_ACTIVE, REVERTING, ABORTED, COMPLETED, FAILED]
+          example: "FAULT_ACTIVE"
+        affectedInstances:
+          type: integer
+          description: "Number of service instances currently impacted."
+          example: 3
+        durationSeconds:
+          type: integer
+          example: 300
+        remainingSeconds:
+          type: integer
+          description: "How much longer the fault will remain active."
+          example: 142
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        initiatedBy:
+          type: string
+          example: "sre.chaos@forgesphere.example.com"
+        liveImpact:
+          type: object
+          description: "Real-time metrics observed during the experiment."
+          properties:
+            errorRatePercent:
+              type: number
+              format: double
+              example: 4.7
+            latencyP99Ms:
+              type: integer
+              example: 850
+            throughputDropPercent:
+              type: number
+              format: double
+              example: 12.3
+
+    ResilienceReport:
+      type: object
+      required: [experimentId, verdict, selfHealed, summary]
+      properties:
+        experimentId:
+          type: string
+          format: uuid
+        verdict:
+          type: string
+          enum: [EXCELLENT, GOOD, DEGRADED, POOR]
+          description: "Overall resilience verdict."
+          example: "GOOD"
+        selfHealed:
+          type: boolean
+          description: "Did the service recover without manual intervention?"
+          example: true
+        recoveryTimeSeconds:
+          type: integer
+          description: "How long until full recovery after fault removal."
+          example: 18
+        circuitBreakersFired:
+          type: integer
+          example: 4
+        autoScalingTriggered:
+          type: boolean
+          example: true
+        summary:
+          type: string
+          example: "Service tolerated 500ms delay with graceful degradation. No user-facing errors."
+        lessonsLearned:
+          type: array
+          items:
+            type: string
+          example:
+            - "Retry logic in payment-client needs exponential backoff."
+            - "Connection pool maxed out at 20; consider 50."
+        previousExperimentComparison:
+          type: object
+          description: "Side-by-side metrics vs previous experiment on same service."
+          properties:
+            improvedMetrics:
+              type: array
+              items:
+                type: string
+              example: ["latencyP99Ms"]
+            regressedMetrics:
+              type: array
+              items:
+                type: string
+              example: ["errorRatePercent"]
+
+    ErrorResponse:
+      type: object
+      required: [status, message, timestamp, path]
+      properties:
+        status:
+          type: integer
+          example: 403
+        errorCode:
+          type: string
+          example: "PROD_BLAST_RADIUS_NOT_APPROVED"
+        message:
+          type: string
+          example: "Production chaos experiments require blastRadiusApproved=true."
+        timestamp:
+          type: string
+          format: date-time
+        path:
+          type: string
+          example: "/v1/experiments"
+
+  responses:
+    BadRequest:
+      description: "Invalid payload or unsupported fault type."
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: "Experiment ID not found."
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: "Unexpected failure while injecting or reverting fault."
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
