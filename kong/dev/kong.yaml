@@ -1,0 +1,89 @@
+_format_version: "3.0"
+_transform: true
+
+########################################################
+# SERVICES
+########################################################
+
+services:
+  - name: chaos-conductor
+    host: chaos-conductor
+    port: 443
+    protocol: https
+    path: /api
+    retries: 5
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    routes:
+      - name: chaos-conductor-post-api-v1-payments-experiments
+        protocols:
+          - https
+          - http
+        methods:
+          - POST
+        hosts:
+          - api.example.com
+        paths:
+          - /api/v1/payments/experiments
+        strip_path: true
+        preserve_host: false
+        https_redirect_status_code: 426
+      - name: chaos-conductor-get-api-v1-payments-experiments-experimentid
+        protocols:
+          - https
+          - http
+        methods:
+          - GET
+        hosts:
+          - api.example.com
+        paths:
+          - /api/v1/payments/experiments/{experimentId}
+        strip_path: true
+        preserve_host: false
+        https_redirect_status_code: 426
+      - name: chaos-conductor-post-api-v1-payments-experiments-experimentid-abort
+        protocols:
+          - https
+          - http
+        methods:
+          - POST
+        hosts:
+          - api.example.com
+        paths:
+          - /api/v1/payments/experiments/{experimentId}/abort
+        strip_path: true
+        preserve_host: false
+        https_redirect_status_code: 426
+      - name: chaos-conductor-get-api-v1-payments-experiments-experimentid-report
+        protocols:
+          - https
+          - http
+        methods:
+          - GET
+        hosts:
+          - api.example.com
+        paths:
+          - /api/v1/payments/experiments/{experimentId}/report
+        strip_path: true
+        preserve_host: false
+        https_redirect_status_code: 426
+
+########################################################
+# PLUGINS
+########################################################
+
+plugins:
+  []
+
+########################################################
+# UPSTREAMS + TARGETS
+########################################################
+
+upstreams:
+  - name: chaos-conductor
+    algorithm: round-robin
+    slots: 10000
+    targets:
+      - target: api.example.com:443
+        weight: 100
