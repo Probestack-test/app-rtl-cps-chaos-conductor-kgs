@@ -29,3 +29,4 @@ jobs:
       validate_only: true
       deck_mode: apply
       select_tag: migrated-by:forgeshift-wso2-migrator
+      branch_name: ${{ github.ref_name }}
