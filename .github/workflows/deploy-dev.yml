@@ -4,13 +4,14 @@ on:
     branches:
       - feature-adarsha
       - release
-  workflow_dispatch: 
+
 jobs:
   kong-deploy:
     uses: ForgeCrux/pipeline-template/.github/workflows/kong-konnect.yaml@main
     permissions:
       contents: read
       id-token: write
+      
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
       APP_ID: ${{ secrets.APP_ID }}
@@ -20,6 +21,7 @@ jobs:
       PROB_SERVICE_TOKEN_CLIENT_SECRET: ${{ secrets.PROB_SERVICE_TOKEN_CLIENT_SECRET }}
       PROB_SERVICE_TOKEN_TENANT_ID: ${{ secrets.PROB_SERVICE_TOKEN_TENANT_ID }}
       cicd_profile_id: ${{ secrets.CICD_PROFILE_ID }}
+      
     with:
       kong_config_path: kong/kong.yaml
       control_plane_name: Forgeshiftw2k
