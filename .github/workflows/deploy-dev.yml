@@ -20,7 +20,7 @@ jobs:
       PROB_SERVICE_TOKEN_TENANT_ID: ${{ secrets.PROB_SERVICE_TOKEN_TENANT_ID }}
       cicd_profile_id: ${{ secrets.CICD_PROFILE_ID }}
     with:
-      kong_config_path: kong/kong.yaml
+      kong_config_path: kong/dev/kong.yaml
       control_plane_name: Forgeshiftw2k
       deploy_proxy: kong
       validate_only: true
