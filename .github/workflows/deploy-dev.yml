@@ -4,6 +4,7 @@ on:
     branches:
       - feature-adarsha
       - release
+  workflow_dispatch: 
 jobs:
   kong-deploy:
     uses: ForgeCrux/pipeline-template/.github/workflows/kong-konnect.yaml@main
